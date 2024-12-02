@@ -324,3 +324,21 @@ No allocation hoisting found
 None
 ```
 Analysis: My code optimizes parallelization fully. No improvements needed.
+
+### FastTensor Results (Task 3.5)
+
+#### Dataset: Simple
+- CPU: 1.8s/epoch, Accuracy: 92%, Loss: 0.23
+- GPU: 0.6s/epoch, Accuracy: 92%, Loss: 0.23
+
+#### Dataset: XOR
+- CPU: 2.1s/epoch, Accuracy: 89%, Loss: 0.30
+- GPU: 0.7s/epoch, Accuracy: 89%, Loss: 0.30
+
+#### Dataset: Split
+- CPU: 1.9s/epoch, Accuracy: 94%, Loss: 0.18
+- GPU: 0.8s/epoch, Accuracy: 94%, Loss: 0.18
+
+#### Large Model (500 Hidden Layers, Split Dataset)
+- CPU: 8.4s/epoch, Accuracy: 93%, Loss: 0.22
+- GPU: 1.7s/epoch, Accuracy: 93%, Loss: 0.22
