@@ -183,8 +183,10 @@ def tensor_map(
             broadcast_index(out_index, out_shape, in_shape, in_index)
             
             # calculate flat positions in memory for input
-            pos = index_to_position(in_index, in_strides)
-            
+            pos = 0
+            for j in range(len(in_index)):
+                pos += in_index[j] * in_strides[j]
+                
             # apply mapping fn
             out[i] = fn(in_storage[pos])
             
@@ -239,8 +241,13 @@ def tensor_zip(
             broadcast_index(out_index, out_shape, b_shape, b_index)
             
             # calculate flat pos in memory
-            a_pos = index_to_position(a_index, a_strides)
-            b_pos = index_to_position(b_index, b_strides)
+            a_pos = 0
+            for j in range(len(a_index)):
+                a_pos = a_index[j] * a_strides[j]
+                
+            b_pos = 0
+            for j in range(len(b_index)):
+                b_pos = b_index[j] * b_strides[j]
             
             # apply zip fn
             out[i] = fn(a_storage[a_pos], b_storage[b_pos])
@@ -367,7 +374,7 @@ def tensor_reduce(
             out[out_position] = out_val
                 
 
-    return jit(_reduce)  # type: ignore
+    return cuda.jit()(_reduce)  # type: ignore
 
 
 def _mm_practice(out: Storage, a: Storage, b: Storage, size: int) -> None:
@@ -428,7 +435,7 @@ def _mm_practice(out: Storage, a: Storage, b: Storage, size: int) -> None:
         out[thread_row * size + thread_col] = dot_product
 
 
-jit_mm_practice = jit(_mm_practice)
+jit_mm_practice = cuda.jit()(_mm_practice)
 
 
 def mm_practice(a: Tensor, b: Tensor) -> TensorData:
