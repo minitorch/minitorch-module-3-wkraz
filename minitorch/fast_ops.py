@@ -351,11 +351,33 @@ def _tensor_matrix_multiply(
         None : Fills in `out`
 
     """
+    # remember, matrix multiplication def:
+    #   sum(A[i, k] * B[k, j])
     a_batch_stride = a_strides[0] if a_shape[0] > 1 else 0
     b_batch_stride = b_strides[0] if b_shape[0] > 1 else 0
 
-    # TODO: Implement for Task 3.2.
-    raise NotImplementedError("Need to implement for Task 3.2")
+    # parallel execution over all elements in out (c)
+    for out_pos in prange(len(out)):
+        # compute row and column with modulo arithmetic
+        out_row = (out_pos // out_strides[-2] % out_shape[-2])
+        out_col = (out_pos // out_strides[-1] % out_shape[-1])
+        # get batch index for higher dim tensors
+        out_batch = out_pos // out_strides[0] if len(out_shape) > 2 else 0
+        
+        # compute a & b base positions
+        a_pos = out_batch * a_batch_stride + out_row * a_strides[-2]        # starting memory pos in A for curr row in A
+        b_pos = out_batch * b_batch_stride + out_col * b_strides[-1]        # starting memory pos in B for curr col in B
+        
+        # inner loop summation
+        curr_sum = 0.0
+        for _ in range(b_shape[-2]):
+            # compute dot product and add to sum
+            curr_sum += a_storage[a_pos] * b_storage[b_pos]
+            # change a&b_pos accordingly
+            a_pos += a_strides[-1]
+            b_pos += b_strides[-2]
+        # update result in storage
+        out[out_pos] = curr_sum
 
 
 tensor_matrix_multiply = njit(_tensor_matrix_multiply, parallel=True)
