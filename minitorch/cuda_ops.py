@@ -500,8 +500,43 @@ def _tensor_matrix_multiply(
     #    a) Copy into shared memory for a matrix.
     #    b) Copy into shared memory for b matrix
     #    c) Compute the dot produce for position c[i, j]
-    # TODO: Implement for Task 3.4.
-    raise NotImplementedError("Need to implement for Task 3.4")
+    
+    shared_dim = a_shape[-1] # == b_shape[-2] ASSUMED
+    out_range = (shared_dim + BLOCK_DIM - 1) // BLOCK_DIM
+    in_range = min(shared_dim, BLOCK_DIM)
+    dot_product = 0.0
+    
+    # iterate over tiles in the shared dimension
+    for out_range_idx in range(out_range):
+        # 1) move across shared dimension by a block dim
+        a_col_idx = out_range_idx * BLOCK_DIM + pi
+        b_row_idx = out_range_idx * BLOCK_DIM + pj
+        
+        # a) copy into shared memory for `a` matrix
+        a_shared[pj, pi] = 0.0
+        if j < out_shape[-2] and a_col_idx < shared_dim:
+            a_pos = batch * a_batch_stride + j * a_strides[-2] + a_col_idx * a_strides[-1]
+            a_shared[pj, pi] = a_storage[a_pos]
+            
+        # b) copy into shared memory fo `b` matrix
+        b_shared[pj, pi] = 0.0
+        if i < out_shape[-1] and b_row_idx < shared_dim:
+            b_pos = batch * b_batch_stride + i * b_strides[-1] + b_row_idx * b_strides[-2]
+            b_shared[pj, pi] = b_storage[b_pos]
+            
+        # make sure synced
+        cuda.syncthreads()
+        
+        # compute dot product for position c[i, j]
+        if j < out_shape[-2] and i < out_shape[-1]:
+            for k in range(in_range):
+                dot_product += a_shared[pj, k] * b_shared[k, pi]
+        
+        cuda.syncthreads()
+        
+        # write dot product to output tensor
+        if j < out_shape[-2] and i < out_shape[-1]:
+            out_pos = batch * out_strides[0] + j * out_strides[1] + i * out_strides[2]
+            out[out_pos] = dot_product
 
-
-tensor_matrix_multiply = jit(_tensor_matrix_multiply)
+tensor_matrix_multiply = cuda.jit()(_tensor_matrix_multiply)
