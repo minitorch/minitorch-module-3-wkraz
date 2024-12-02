@@ -168,24 +168,22 @@ def tensor_map(
         in_shape: Shape,
         in_strides: Strides,
     ) -> None:
-        out_size, in_size = len(out_shape), len(in_shape)
-        out_index = np.empty(out_size, dtype=np.int32)
-        in_index = np.empty(in_size, dtype=np.int32)
+        out_size = len(out)
         
-        for i in prange(len(out)):          # parallelization optimization
-            # compute multi dim index for output tensor
-            to_index(i, out_shape, out_index)
+        # optimization: if shapes and strides are aligned, we don't need to compute indices
+        if np.allclose(out_shape, in_shape) and np.allclose(out_strides, in_strides):
+            # directly apply the function with parallel execution
+            for i in prange(out_size):
+                out[i] = fn(in_storage[i])                                          # just apply function directly
+        else:
+            # not aligned so we have to actually calculate indices
+            out_index = np.zeros_like(out_shape)
+            in_index = np.zeros_like(in_shape)
             
-            # broadcast output index to input index
-            broadcast_index(out_index, out_shape, in_shape, in_index)
-            
-            # compute flat positions in memory
-            out_position = index_to_position(out_index, out_strides)
-            in_position = index_to_position(in_index, in_strides)
-            
-            # apply the mapping function
-            out[out_position] = fn(in_storage[in_position])
-            
+            for i in prange(out_size):
+                to_index(i, out_shape, out_index)                                   # convert flat index to multidim
+                broadcast_index(out_index, out_shape, in_shape, in_index)           # broadcast
+                out[i] = fn(in_storage[index_to_position(in_index, in_strides)])    # apply function 
 
     return njit(_map, parallel=True)  # type: ignore
 
@@ -224,25 +222,33 @@ def tensor_zip(
         b_shape: Shape,
         b_strides: Strides,
     ) -> None:
-        # set up initial indices
-        out_index = np.empty(len(out_shape), dtype=np.int32)
-        a_index = np.empty(len(a_shape), dtype=np.int32)
-        b_index = np.empty(len(b_shape), dtype=np.int32)
+        out_size = len(out)
         
-        for i in prange(len(out)):              # parallel execution optimization
-            # compute multidim index
-            to_index(i, out_shape, out_index)
+        # same optimization as map, don't compute indices if aligned
+        if (np.allclose(out_shape, a_shape) and np.allclose(out_strides, a_strides)) and \
+            (np.allclose(a_shape, b_shape) and np.allclose(a_strides, b_strides)):
+                # directly apply fn to a and b with parallel execution
+                for i in prange(out_size):
+                    out[i] = fn(a_storage[i], b_storage[i])
+        else:
+            # not aligned so we have to compute indices :(
+            a_index = np.zeros_like(a_shape)
+            b_index = np.zeros_like(b_shape)
+            out_index = np.zeros_like(out_shape)
             
-            # broadcast indices to match shape of a & b
-            broadcast_index(out_index, out_shape, a_shape, a_index)
-            broadcast_index(out_index, out_shape, b_shape, b_index)
-            
-            # compute flat positions in memory
-            out_position = index_to_position(out_index, out_strides)
-            a_position = index_to_position(a_index, a_strides)
-            b_position = index_to_position(b_index, b_strides)
-            
-            out[out_position] = fn(a_storage[a_position], b_storage[b_position])
+            # parallel computing
+            for i in prange(out_size):
+                # get multidim index
+                to_index(i, out_shape, out_index)
+                # broadcast to a and b
+                broadcast_index(out_index, out_shape, a_shape, a_index)
+                broadcast_index(out_index, out_shape, b_shape, b_index)
+                # apply fn to a and b
+                out[i] = fn(
+                    a_storage[index_to_position(a_index, a_strides)],
+                    b_storage[index_to_position(b_index, b_strides)]
+                )
+                
 
     return njit(_zip, parallel=True)  # type: ignore
 
@@ -277,33 +283,26 @@ def tensor_reduce(
         a_strides: Strides,
         reduce_dim: int,
     ) -> None:
-        out_index = np.empty(len(out_shape), dtype=np.int32)
-        a_index = np.empty(len(a_shape), dtype=np.int32)
+        out_size = len(out)
+        out_index = np.zeros_like(out_shape)
         
-        for i in prange(len(out)):          # also parallel execution
-            # compute multidim index
+        # we don't have to check if the tensors are aligned here
+        for i in prange(out_size):
+            # get multi dim index
             to_index(i, out_shape, out_index)
+            # base position in input tensor
+            a_position = index_to_position(out_index, a_strides)
+            # initialize with first value
+            out_val = a_storage[a_position]
             
-            out_position = index_to_position(out_index, out_strides)
-            
-            curr_value = None   # initialize as null
-            # iterate along the dimension to reduce
-            for i in range(a_shape[reduce_dim]):
-                # copy output index to create input index
-                a_index[:] = out_index
-                a_index[reduce_dim] = i
-                
-                # compute position in storage
-                a_position = index_to_position(a_index, a_strides)
-                
-                # perform the reduction
-                if curr_value is None:
-                    curr_value = a_storage[a_position]
-                else:
-                    curr_value = fn(curr_value, a_storage[a_position])
-                    
-                # store reduced value in storage
-                out[out_position] = curr_value
+            # reduce along specified dimension
+            for _ in range(1, a_shape[reduce_dim]):
+                # move along reduction dimension
+                a_position += a_strides[reduce_dim]
+                # combine values
+                out_val = fn(out_val, a_storage[a_position])
+            # store the result we just calculated
+            out[i] = out_val 
                     
 
     return njit(_reduce, parallel=True)  # type: ignore
