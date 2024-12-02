@@ -168,8 +168,24 @@ def tensor_map(
         in_shape: Shape,
         in_strides: Strides,
     ) -> None:
-        # TODO: Implement for Task 3.1.
-        raise NotImplementedError("Need to implement for Task 3.1")
+        out_size, in_size = len(out_shape), len(in_shape)
+        out_index = np.empty(out_size, dtype=np.int32)
+        in_index = np.empty(in_size, dtype=np.int32)
+        
+        for i in prange(len(out)):          # parallelization optimization
+            # compute multi dim index for output tensor
+            to_index(i, out_shape, out_index)
+            
+            # broadcast output index to input index
+            broadcast_index(out_index, out_shape, in_shape, in_index)
+            
+            # compute flat positions in memory
+            out_position = index_to_position(out_index, out_strides)
+            in_position = index_to_position(in_index, in_strides)
+            
+            # apply the mapping function
+            out[out_position] = fn(in_storage[in_position])
+            
 
     return njit(_map, parallel=True)  # type: ignore
 
@@ -208,8 +224,25 @@ def tensor_zip(
         b_shape: Shape,
         b_strides: Strides,
     ) -> None:
-        # TODO: Implement for Task 3.1.
-        raise NotImplementedError("Need to implement for Task 3.1")
+        # set up initial indices
+        out_index = np.empty(len(out_shape), dtype=np.int32)
+        a_index = np.empty(len(a_shape), dtype=np.int32)
+        b_index = np.empty(len(b_shape), dtype=np.int32)
+        
+        for i in prange(len(out)):              # parallel execution optimization
+            # compute multidim index
+            to_index(i, out_shape, out_index)
+            
+            # broadcast indices to match shape of a & b
+            broadcast_index(out_index, out_shape, a_shape, a_index)
+            broadcast_index(out_index, out_shape, b_shape, b_index)
+            
+            # compute flat positions in memory
+            out_position = index_to_position(out_index, out_strides)
+            a_position = index_to_position(a_index, a_strides)
+            b_position = index_to_position(b_index, b_strides)
+            
+            out[out_position] = fn(a_storage[a_position], b_storage[b_position])
 
     return njit(_zip, parallel=True)  # type: ignore
 
@@ -244,8 +277,34 @@ def tensor_reduce(
         a_strides: Strides,
         reduce_dim: int,
     ) -> None:
-        # TODO: Implement for Task 3.1.
-        raise NotImplementedError("Need to implement for Task 3.1")
+        out_index = np.empty(len(out_shape), dtype=np.int32)
+        a_index = np.empty(len(a_shape), dtype=np.int32)
+        
+        for i in prange(len(out)):          # also parallel execution
+            # compute multidim index
+            to_index(i, out_shape, out_index)
+            
+            out_position = index_to_position(out_index, out_strides)
+            
+            curr_value = None   # initialize as null
+            # iterate along the dimension to reduce
+            for i in range(a_shape[reduce_dim]):
+                # copy output index to create input index
+                a_index[:] = out_index
+                a_index[reduce_dim] = i
+                
+                # compute position in storage
+                a_position = index_to_position(a_index, a_strides)
+                
+                # perform the reduction
+                if curr_value is None:
+                    curr_value = a_storage[a_position]
+                else:
+                    curr_value = fn(curr_value, a_storage[a_position])
+                    
+                # store reduced value in storage
+                out[out_position] = curr_value
+                    
 
     return njit(_reduce, parallel=True)  # type: ignore
 
